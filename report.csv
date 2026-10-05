@@ -1,0 +1,4 @@
+URL,Status,Response Time,Issues Count,Issues
+"https://example.com",200,"486ms",2,"Meta description is missing; H1 tag is missing"
+"https://example.com/about",404,"374ms",2,"Meta description is missing; H1 tag is missing"
+"https://example.com/contact",404,"370ms",2,"Meta description is missing; H1 tag is missing"

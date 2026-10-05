@@ -1,0 +1,43 @@
+{
+  "summary": {
+    "totalPages": 3,
+    "pagesWithIssues": 3,
+    "brokenLinks": 2,
+    "issueBreakdown": {
+      "Meta description is missing": 3,
+      "H1 tag is missing": 3
+    }
+  },
+  "results": [
+    {
+      "url": "https://example.com",
+      "status": 200,
+      "responseTime": "486ms",
+      "issuesCount": 2,
+      "issues": [
+        "Meta description is missing",
+        "H1 tag is missing"
+      ]
+    },
+    {
+      "url": "https://example.com/about",
+      "status": 404,
+      "responseTime": "374ms",
+      "issuesCount": 2,
+      "issues": [
+        "Meta description is missing",
+        "H1 tag is missing"
+      ]
+    },
+    {
+      "url": "https://example.com/contact",
+      "status": 404,
+      "responseTime": "370ms",
+      "issuesCount": 2,
+      "issues": [
+        "Meta description is missing",
+        "H1 tag is missing"
+      ]
+    }
+  ]
+}
