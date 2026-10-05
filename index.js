@@ -3,9 +3,7 @@ import fetch from 'node-fetch';
 import { parseStringPromise } from 'xml2js';
 import { JSDOM } from 'jsdom';
 
-// ----------------------------------------------------
-// STEP 2: Read URLs (File or Sitemap) & Remove Duplicates (Set)
-// ----------------------------------------------------
+// Step 2: Read URLs & Remove Duplicates (Set)
 function getUrlsFromFile(filePath) {
   try {
     const data = fs.readFileSync(filePath, 'utf-8');
@@ -17,26 +15,10 @@ function getUrlsFromFile(filePath) {
   }
 }
 
-async function getUrlsFromSitemap(sitemapUrl) {
-  try {
-    const response = await fetch(sitemapUrl);
-    const xmlText = await response.text();
-    const result = await parseStringPromise(xmlText);
-    const urlObjects = result.urlset.url;
-    const rawUrls = urlObjects.map(item => item.loc[0]);
-    return Array.from(new Set(rawUrls));
-  } catch (error) {
-    console.error("Error fetching sitemap:", error.message);
-    return [];
-  }
-}
-
-// ----------------------------------------------------
-// STEP 4: Analyze SEO (Title, Meta, H1, Images)
-// ----------------------------------------------------
-function analyzeSEO(html) {
+// Step 4: Analyze SEO & Extract Internal Links
+async function analyzeSEO(html, baseUrl) {
   const issues = [];
-  if (!html) return { issues: ["Failed to fetch page HTML"] };
+  if (!html) return { issues: ["Failed to fetch page HTML"], brokenInternalLinks: 0 };
 
   const dom = new JSDOM(html);
   const document = dom.window.document;
@@ -53,6 +35,10 @@ function analyzeSEO(html) {
   if (!metaContent) issues.push("Meta description is missing");
   else if (metaContent.length > 160) issues.push("Meta description is longer than 160 characters");
 
+  // Canonical Tag Check
+  const canonical = document.querySelector('link[rel="canonical"]');
+  if (!canonical) issues.push("Canonical tag is missing");
+
   // H1 Tag
   const h1Tags = document.querySelectorAll('h1');
   if (h1Tags.length === 0) issues.push("H1 tag is missing");
@@ -66,19 +52,45 @@ function analyzeSEO(html) {
   });
   if (missingAltCount > 0) issues.push(`Images missing alt text (${missingAltCount})`);
 
+  // Internal Links 404 Check
+  const anchorTags = document.querySelectorAll('a[href]');
+  let brokenInternalLinks = 0;
+  const internalLinks = [];
+
+  anchorTags.forEach(a => {
+    const href = a.getAttribute('href');
+    if (href && (href.startsWith('/') || href.startsWith(baseUrl))) {
+      const fullUrl = href.startsWith('/') ? new URL(href, baseUrl).href : href;
+      internalLinks.push(fullUrl);
+    }
+  });
+
+  // Check unique internal links status (limit to first 5 internal links for speed)
+  const uniqueInternalLinks = Array.from(new Set(internalLinks)).slice(0, 5);
+  for (const link of uniqueInternalLinks) {
+    try {
+      const res = await fetch(link, { method: 'HEAD', timeout: 5000 });
+      if (res.status === 404) brokenInternalLinks++;
+    } catch (e) {
+      // Ignore network fetch errors for sub-links
+    }
+  }
+
+  if (brokenInternalLinks > 0) {
+    issues.push(`Broken internal links found (${brokenInternalLinks})`);
+  }
+
   return { issues };
 }
 
-// ----------------------------------------------------
-// STEP 3: Fetch Pages with Queue (Max 3 Concurrently)
-// ----------------------------------------------------
+// Step 3: Fetch Pages with Queue
 async function fetchPage(url) {
   const startTime = Date.now();
   try {
     const response = await fetch(url, { timeout: 10000 });
     const duration = Date.now() - startTime;
     const html = await response.text();
-    const seoData = analyzeSEO(html);
+    const seoData = await analyzeSEO(html, url);
 
     return {
       url,
@@ -120,9 +132,7 @@ async function processQueue(urls, limit = 3) {
   return Promise.all(results);
 }
 
-// ----------------------------------------------------
-// STEP 5: Generate Terminal Summary, JSON, and CSV Reports (Map)
-// ----------------------------------------------------
+// Step 5: Generate Reports (Map)
 function generateReports(results) {
   results.sort((a, b) => b.issuesCount - a.issuesCount);
 
@@ -147,7 +157,7 @@ function generateReports(results) {
   });
   console.log("================================================");
 
-  // Save JSON
+  // Save JSON & CSV
   const reportData = {
     summary: {
       totalPages: results.length,
@@ -159,7 +169,6 @@ function generateReports(results) {
   };
   fs.writeFileSync('report.json', JSON.stringify(reportData, null, 2));
 
-  // Save CSV
   let csvContent = "URL,Status,Response Time,Issues Count,Issues\n";
   results.forEach(r => {
     const issuesStr = `"${r.issues.join('; ')}"`;
@@ -170,17 +179,10 @@ function generateReports(results) {
   console.log("\nSaved: 'report.json' and 'report.csv'");
 }
 
-// ----------------------------------------------------
-// MAIN EXECUTION
-// ----------------------------------------------------
 async function main() {
   console.log("Starting SEO Audit...");
   const urls = getUrlsFromFile('urls.txt');
-  
-  if (urls.length === 0) {
-    console.log("No URLs found in urls.txt!");
-    return;
-  }
+  if (urls.length === 0) return;
 
   console.log(`Processing ${urls.length} URLs (Max 3 concurrently)...`);
   const results = await processQueue(urls, 3);
