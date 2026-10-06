@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>SEO & Link Health Report</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; background-color: #f4f4f9; }
+    h1 { color: #333; }
+    input { padding: 8px; margin-bottom: 15px; width: 300px; }
+    table { width: 100%; border-collapse: collapse; background: #fff; }
+    th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
+    th { background-color: #007bff; color: white; }
+    tr:nth-child(even) { background-color: #f9f9f9; }
+    .badge { background: #e74c3c; color: white; padding: 3px 8px; border-radius: 4px; font-size: 12px; }
+  </style>
+</head>
+<body>
+
+  <h1>SEO & Link Health Audit Report</h1>
+  <input type="text" id="searchInput" onkeyup="filterReport()" placeholder="Search by URL...">
+
+  <table id="reportTable">
+    <thead>
+      <tr>
+        <th>URL</th>
+        <th>Status</th>
+        <th>Response Time</th>
+        <th>Issues Found</th>
+      </tr>
+    </thead>
+    <tbody>
+      <!-- Data will be loaded from report.json -->
+    </tbody>
+  </table>
+
+  <script>
+    fetch('report.json')
+      .then(res => res.json())
+      .then(data => {
+        const tbody = document.querySelector('#reportTable tbody');
+        data.forEach(item => {
+          const row = document.createElement('tr');
+          const issuesHtml = item.issues.length 
+            ? item.issues.map(i => `<span class="badge">${i}</span>`).join(' ') 
+            : '<span style="color:green;">No Issues</span>';
+
+          row.innerHTML = `
+            <td>${item.url}</td>
+            <td>${item.status}</td>
+            <td>${item.responseTime}ms</td>
+            <td>${issuesHtml}</td>
+          `;
+          tbody.appendChild(row);
+        });
+      })
+      .catch(err => console.error("Could not load report.json:", err));
+
+    function filterReport() {
+      const input = document.getElementById('searchInput').value.toLowerCase();
+      const rows = document.querySelectorAll('#reportTable tbody tr');
+      rows.forEach(row => {
+        const url = row.cells[0].textContent.toLowerCase();
+        row.style.display = url.includes(input) ? '' : 'none';
+      });
+    }
+  </script>
+</body>
+</html>
