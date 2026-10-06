@@ -1,4 +1,4 @@
 URL,Status,Response Time,Issues Count,Issues
-"https://example.com",200,"417ms",3,"Meta description is missing; Canonical tag is missing; H1 tag is missing"
-"https://example.com/about",404,"512ms",3,"Meta description is missing; Canonical tag is missing; H1 tag is missing"
-"https://example.com/contact",404,"403ms",3,"Meta description is missing; Canonical tag is missing; H1 tag is missing"
+"https://www.github.com",200,"937ms",3,"Title is longer than 60 characters; Meta description is longer than 160 characters; Images missing alt text (17)"
+"https://www.google.com",200,"938ms",3,"Meta description is missing; Canonical tag is missing; H1 tag is missing"
+"https://www.wikipedia.org",200,"626ms",2,"Canonical tag is missing; Images missing alt text (1)"

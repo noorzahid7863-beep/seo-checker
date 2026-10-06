@@ -2,18 +2,33 @@
   "summary": {
     "totalPages": 3,
     "pagesWithIssues": 3,
-    "brokenLinks": 2,
+    "brokenLinks": 0,
     "issueBreakdown": {
-      "Meta description is missing": 3,
-      "Canonical tag is missing": 3,
-      "H1 tag is missing": 3
+      "Title is longer than 60 characters": 1,
+      "Meta description is longer than 160 characters": 1,
+      "Images missing alt text (17)": 1,
+      "Meta description is missing": 1,
+      "Canonical tag is missing": 2,
+      "H1 tag is missing": 1,
+      "Images missing alt text (1)": 1
     }
   },
   "results": [
     {
-      "url": "https://example.com",
+      "url": "https://www.github.com",
       "status": 200,
-      "responseTime": "417ms",
+      "responseTime": "937ms",
+      "issuesCount": 3,
+      "issues": [
+        "Title is longer than 60 characters",
+        "Meta description is longer than 160 characters",
+        "Images missing alt text (17)"
+      ]
+    },
+    {
+      "url": "https://www.google.com",
+      "status": 200,
+      "responseTime": "938ms",
       "issuesCount": 3,
       "issues": [
         "Meta description is missing",
@@ -22,25 +37,13 @@
       ]
     },
     {
-      "url": "https://example.com/about",
-      "status": 404,
-      "responseTime": "512ms",
-      "issuesCount": 3,
+      "url": "https://www.wikipedia.org",
+      "status": 200,
+      "responseTime": "626ms",
+      "issuesCount": 2,
       "issues": [
-        "Meta description is missing",
         "Canonical tag is missing",
-        "H1 tag is missing"
-      ]
-    },
-    {
-      "url": "https://example.com/contact",
-      "status": 404,
-      "responseTime": "403ms",
-      "issuesCount": 3,
-      "issues": [
-        "Meta description is missing",
-        "Canonical tag is missing",
-        "H1 tag is missing"
+        "Images missing alt text (1)"
       ]
     }
   ]

@@ -2,16 +2,17 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>SEO & Link Health Report</title>
+  <title>SEO & Link Health Audit Report</title>
   <style>
     body { font-family: Arial, sans-serif; margin: 20px; background-color: #f4f4f9; }
     h1 { color: #333; }
-    input { padding: 8px; margin-bottom: 15px; width: 300px; }
-    table { width: 100%; border-collapse: collapse; background: #fff; }
+    input { padding: 8px; margin-bottom: 15px; width: 320px; border: 1px solid #ccc; border-radius: 4px; }
+    table { width: 100%; border-collapse: collapse; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
     th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
     th { background-color: #007bff; color: white; }
     tr:nth-child(even) { background-color: #f9f9f9; }
-    .badge { background: #e74c3c; color: white; padding: 3px 8px; border-radius: 4px; font-size: 12px; }
+    .badge { background: #e74c3c; color: white; padding: 3px 8px; border-radius: 4px; font-size: 12px; display: inline-block; margin: 2px; }
+    .ok { background: #2ecc71; color: white; padding: 3px 8px; border-radius: 4px; font-size: 12px; }
   </style>
 </head>
 <body>
@@ -28,32 +29,52 @@
         <th>Issues Found</th>
       </tr>
     </thead>
-    <tbody>
-      <!-- Data will be loaded from report.json -->
+    <tbody id="tableBody">
+      <tr><td colspan="4">Loading data...</td></tr>
     </tbody>
   </table>
 
   <script>
-    fetch('report.json')
-      .then(res => res.json())
-      .then(data => {
-        const tbody = document.querySelector('#reportTable tbody');
-        data.forEach(item => {
+    async function loadReport() {
+      try {
+        const response = await fetch('report.json');
+        const data = await response.json();
+        
+        // Handle object or array formats automatically
+        const reportArray = Array.isArray(data) ? data : (data.results || data.pages || [data]);
+        const tbody = document.getElementById('tableBody');
+        tbody.innerHTML = '';
+
+        reportArray.forEach(item => {
           const row = document.createElement('tr');
-          const issuesHtml = item.issues.length 
-            ? item.issues.map(i => `<span class="badge">${i}</span>`).join(' ') 
-            : '<span style="color:green;">No Issues</span>';
+          
+          // Fallbacks for all possible key names
+          const url = item.url || item.link || item.page || 'N/A';
+          const status = item.status || item.statusCode || item.code || '200 OK';
+          const time = item.responseTime || item.time || item.duration || '120';
+          
+          let rawIssues = item.issues || item.errors || [];
+          if (typeof rawIssues === 'string') rawIssues = [rawIssues];
+          
+          const issuesHtml = (Array.isArray(rawIssues) && rawIssues.length > 0)
+            ? rawIssues.map(i => `<span class="badge">${typeof i === 'object' ? (i.message || JSON.stringify(i)) : i}</span>`).join(' ')
+            : '<span class="ok">No Issues</span>';
 
           row.innerHTML = `
-            <td>${item.url}</td>
-            <td>${item.status}</td>
-            <td>${item.responseTime}ms</td>
+            <td>${url}</td>
+            <td>${status}</td>
+            <td>${time}ms</td>
             <td>${issuesHtml}</td>
           `;
           tbody.appendChild(row);
         });
-      })
-      .catch(err => console.error("Could not load report.json:", err));
+      } catch (error) {
+        console.error("Error:", error);
+        document.getElementById('tableBody').innerHTML = `<tr><td colspan="4" style="color:red">Failed to load report.json data. Make sure Live Server is running.</td></tr>`;
+      }
+    }
+
+    loadReport();
 
     function filterReport() {
       const input = document.getElementById('searchInput').value.toLowerCase();
