@@ -1,4 +1,4 @@
 URL,Status,Response Time,Issues Count,Issues
-"https://www.github.com",200,"937ms",3,"Title is longer than 60 characters; Meta description is longer than 160 characters; Images missing alt text (17)"
-"https://www.google.com",200,"938ms",3,"Meta description is missing; Canonical tag is missing; H1 tag is missing"
-"https://www.wikipedia.org",200,"626ms",2,"Canonical tag is missing; Images missing alt text (1)"
+"https://www.github.com",200,"794ms",3,"Title is longer than 60 characters; Meta description is longer than 160 characters; Images missing alt text (17)"
+"https://www.google.com",200,"527ms",3,"Meta description is missing; Canonical tag is missing; H1 tag is missing"
+"https://www.wikipedia.org",200,"512ms",2,"Canonical tag is missing; Images missing alt text (1)"

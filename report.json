@@ -17,7 +17,7 @@
     {
       "url": "https://www.github.com",
       "status": 200,
-      "responseTime": "937ms",
+      "responseTime": "794ms",
       "issuesCount": 3,
       "issues": [
         "Title is longer than 60 characters",
@@ -28,7 +28,7 @@
     {
       "url": "https://www.google.com",
       "status": 200,
-      "responseTime": "938ms",
+      "responseTime": "527ms",
       "issuesCount": 3,
       "issues": [
         "Meta description is missing",
@@ -39,7 +39,7 @@
     {
       "url": "https://www.wikipedia.org",
       "status": 200,
-      "responseTime": "626ms",
+      "responseTime": "512ms",
       "issuesCount": 2,
       "issues": [
         "Canonical tag is missing",
