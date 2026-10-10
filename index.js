@@ -1,192 +1,226 @@
 import fs from 'fs';
 import fetch from 'node-fetch';
-import { parseStringPromise } from 'xml2js';
-import { JSDOM } from 'jsdom';
+import { URL } from 'url';
 
-// Step 2: Read URLs & Remove Duplicates (Set)
-function getUrlsFromFile(filePath) {
-  try {
-    const data = fs.readFileSync(filePath, 'utf-8');
-    const rawUrls = data.split('\n').map(url => url.trim()).filter(Boolean);
-    return Array.from(new Set(rawUrls));
-  } catch (error) {
-    console.error("Error reading file:", error.message);
-    return [];
-  }
+// 1. Get Target URL from Command Line (e.g. node index.js https://www.xloopdigital.com)
+const inputUrl = process.argv[2] || 'https://www.xloopdigital.com';
+const baseUrl = new URL(inputUrl).origin;
+
+console.log(`🚀 Starting Crawl & Audit for: ${baseUrl}`);
+
+const visitedUrls = new Set();
+const pagesToCrawl = [];
+const auditResults = [];
+const issueSummaryMap = new Map();
+const MAX_PAGES = 50;
+
+function trackIssue(type) {
+  issueSummaryMap.set(type, (issueSummaryMap.get(type) || 0) + 1);
 }
 
-// Step 4: Analyze SEO & Extract Internal Links
-async function analyzeSEO(html, baseUrl) {
-  const issues = [];
-  if (!html) return { issues: ["Failed to fetch page HTML"], brokenInternalLinks: 0 };
-
-  const dom = new JSDOM(html);
-  const document = dom.window.document;
-
-  // Title
-  const titleTag = document.querySelector('title');
-  const titleText = titleTag ? titleTag.textContent.trim() : '';
-  if (!titleText) issues.push("Title is missing");
-  else if (titleText.length > 60) issues.push("Title is longer than 60 characters");
-
-  // Meta Description
-  const metaDesc = document.querySelector('meta[name="description"]');
-  const metaContent = metaDesc ? metaDesc.getAttribute('content') : '';
-  if (!metaContent) issues.push("Meta description is missing");
-  else if (metaContent.length > 160) issues.push("Meta description is longer than 160 characters");
-
-  // Canonical Tag Check
-  const canonical = document.querySelector('link[rel="canonical"]');
-  if (!canonical) issues.push("Canonical tag is missing");
-
-  // H1 Tag
-  const h1Tags = document.querySelectorAll('h1');
-  if (h1Tags.length === 0) issues.push("H1 tag is missing");
-  else if (h1Tags.length > 1) issues.push("Multiple H1 tags found");
-
-  // Images Alt
-  const images = document.querySelectorAll('img');
-  let missingAltCount = 0;
-  images.forEach(img => {
-    if (!img.getAttribute('alt')) missingAltCount++;
-  });
-  if (missingAltCount > 0) issues.push(`Images missing alt text (${missingAltCount})`);
-
-  // Internal Links 404 Check
-  const anchorTags = document.querySelectorAll('a[href]');
-  let brokenInternalLinks = 0;
-  const internalLinks = [];
-
-  anchorTags.forEach(a => {
-    const href = a.getAttribute('href');
-    if (href && (href.startsWith('/') || href.startsWith(baseUrl))) {
-      const fullUrl = href.startsWith('/') ? new URL(href, baseUrl).href : href;
-      internalLinks.push(fullUrl);
+// 2. Fetch Sitemap or Fallback to Internal Links
+async function getUrlsToCrawl() {
+  const sitemapUrl = `${baseUrl}/sitemap.xml`;
+  try {
+    const res = await fetch(sitemapUrl, { timeout: 5000 });
+    if (res.status === 200) {
+      const text = await res.text();
+      const locs = text.match(/<loc>(.*?)<\/loc>/gi) || [];
+      const extracted = locs.map(l => l.replace(/<\/?loc>/g, '')).filter(u => u.startsWith(baseUrl));
+      if (extracted.length > 0) {
+        console.log(`✅ Found ${extracted.length} URLs in sitemap.xml`);
+        return Array.from(new Set(extracted)).slice(0, MAX_PAGES);
+      }
     }
-  });
+  } catch (err) {
+    console.log(`⚠️ Sitemap fetch failed or not found. Falling back to internal crawling.`);
+  }
+  return [baseUrl];
+}
 
-  // Check unique internal links status (limit to first 5 internal links for speed)
-  const uniqueInternalLinks = Array.from(new Set(internalLinks)).slice(0, 5);
-  for (const link of uniqueInternalLinks) {
+// Helper to check broken internal links inside a page
+async function checkInternalLinks(html, currentPageUrl) {
+  const linkMatches = html.match(/href=["'](\/?[^"']+)["']/gi) || [];
+  const brokenLinks = [];
+  const checkedLinks = new Set();
+
+  for (let match of linkMatches) {
+    let href = match.replace(/href=["']/i, '').replace(/["']$/, '');
+    if (href.startsWith('#') || href.startsWith('mailto:') || href.startsWith('tel:')) continue;
+    
+    let absoluteUrl;
     try {
-      const res = await fetch(link, { method: 'HEAD', timeout: 5000 });
-      if (res.status === 404) brokenInternalLinks++;
+      absoluteUrl = new URL(href, currentPageUrl).href;
     } catch (e) {
-      // Ignore network fetch errors for sub-links
+      continue;
+    }
+
+    if (!absoluteUrl.startsWith(baseUrl) || checkedLinks.has(absoluteUrl)) continue;
+    checkedLinks.add(absoluteUrl);
+
+    // Collect new pages for crawler if needed
+    if (!visitedUrls.has(absoluteUrl) && pagesToCrawl.length < MAX_PAGES && !pagesToCrawl.includes(absoluteUrl)) {
+      pagesToCrawl.push(absoluteUrl);
+    }
+
+    // Check link status
+    try {
+      const linkRes = await fetch(absoluteUrl, { method: 'HEAD', timeout: 3000 });
+      if (linkRes.status === 404) {
+        brokenLinks.push(absoluteUrl);
+        trackIssue("Broken Internal Link (404)");
+      }
+    } catch (err) {
+      // Ignore timeout or fetch errors for sub-links
     }
   }
-
-  if (brokenInternalLinks > 0) {
-    issues.push(`Broken internal links found (${brokenInternalLinks})`);
-  }
-
-  return { issues };
+  return brokenLinks;
 }
 
-// Step 3: Fetch Pages with Queue
-async function fetchPage(url) {
+// 3. Page SEO Validator
+async function auditPage(pageUrl) {
   const startTime = Date.now();
+  const issues = [];
+  let brokenLinks = [];
+
   try {
-    const response = await fetch(url, { timeout: 10000 });
-    const duration = Date.now() - startTime;
-    const html = await response.text();
-    const seoData = await analyzeSEO(html, url);
+    const res = await fetch(pageUrl, { timeout: 8000 });
+    const responseTime = `${Date.now() - startTime}ms`;
+    const statusCode = res.status;
 
-    return {
-      url,
-      status: response.status,
-      responseTime: `${duration}ms`,
-      issuesCount: seoData.issues.length,
-      issues: seoData.issues
-    };
-  } catch (error) {
-    const duration = Date.now() - startTime;
-    return {
-      url,
-      status: 0,
-      responseTime: `${duration}ms`,
-      issuesCount: 1,
-      issues: ["Fetch error / Timeout"]
-    };
-  }
-}
-
-async function processQueue(urls, limit = 3) {
-  const results = [];
-  const executing = new Set();
-
-  for (const url of urls) {
-    const promise = fetchPage(url).then(result => {
-      executing.delete(promise);
-      return result;
-    });
-
-    results.push(promise);
-    executing.add(promise);
-
-    if (executing.size >= limit) {
-      await Promise.race(executing);
+    if (statusCode === 404) {
+      issues.push("Page Not Found (404)");
+      trackIssue("Page 404");
     }
-  }
 
-  return Promise.all(results);
+    const html = await res.text();
+
+    // SEO Checks
+    const titleMatch = html.match(/<title>(.*?)<\/title>/i);
+    if (!titleMatch) {
+      issues.push("Missing Title Tag");
+      trackIssue("Missing Title Tag");
+    } else if (titleMatch[1].length > 60) {
+      issues.push(`Title too long (${titleMatch[1].length} chars)`);
+      trackIssue("Title Too Long (>60 chars)");
+    }
+
+    const metaMatch = html.match(/<meta\s+name=["']description["']\s+content=["'](.*?)["']/i);
+    if (!metaMatch) {
+      issues.push("Missing Meta Description");
+      trackIssue("Missing Meta Description");
+    } else if (metaMatch[1].length > 160) {
+      issues.push(`Meta description too long (${metaMatch[1].length} chars)`);
+      trackIssue("Meta Description Too Long (>160 chars)");
+    }
+
+    const h1Matches = html.match(/<h1[\s>]/gi) || [];
+    if (h1Matches.length === 0) {
+      issues.push("Missing H1 Tag");
+      trackIssue("Missing H1 Tag");
+    } else if (h1Matches.length > 1) {
+      issues.push(`Multiple H1 Tags (${h1Matches.length})`);
+      trackIssue("Multiple H1 Tags");
+    }
+
+    const imgMatches = html.match(/<img[^>]+>/gi) || [];
+    let missingAlt = 0;
+    imgMatches.forEach(img => {
+      if (!img.includes('alt=') || img.includes('alt=""')) missingAlt++;
+    });
+    if (missingAlt > 0) {
+      issues.push(`${missingAlt} image(s) missing alt text`);
+      trackIssue("Missing Image Alt Text");
+    }
+
+    // Check broken internal links on this page
+    brokenLinks = await checkInternalLinks(html, pageUrl);
+    if (brokenLinks.length > 0) {
+      issues.push(`${brokenLinks.length} broken internal link(s) found`);
+    }
+
+    return {
+      url: pageUrl,
+      status: statusCode,
+      responseTime,
+      issuesCount: issues.length,
+      issues,
+      brokenLinksDetails: brokenLinks
+    };
+
+  } catch (err) {
+    return {
+      url: pageUrl,
+      status: 'Error / Timeout',
+      responseTime: 'N/A',
+      issuesCount: 1,
+      issues: ['Failed to fetch page'],
+      brokenLinksDetails: []
+    };
+  }
 }
 
-// Step 5: Generate Reports (Map)
-function generateReports(results) {
-  results.sort((a, b) => b.issuesCount - a.issuesCount);
+// 4. Main Crawl Execution
+async function runFullAudit() {
+  const initialUrls = await getUrlsToCrawl();
+  pagesToCrawl.push(...initialUrls);
 
-  const issueGroupMap = new Map();
+  while (pagesToCrawl.length > 0 && visitedUrls.size < MAX_PAGES) {
+    const currentUrl = pagesToCrawl.shift();
+    if (visitedUrls.has(currentUrl)) continue;
+    visitedUrls.add(currentUrl);
+
+    console.log(`[${visitedUrls.size}/${MAX_PAGES}] Scanning: ${currentUrl}`);
+    const result = await auditPage(currentUrl);
+    auditResults.push(result);
+  }
+
+  // Sort Worst-First (Most issues first)
+  auditResults.sort((a, b) => b.issuesCount - a.issuesCount);
+
+  // Top 5 Worst Pages
+  const top5WorstPages = auditResults.slice(0, 5).map(p => ({
+    url: p.url,
+    issuesCount: p.issuesCount,
+    issues: p.issues
+  }));
+
   let totalBrokenLinks = 0;
+  auditResults.forEach(r => totalBrokenLinks += (r.brokenLinksDetails ? r.brokenLinksDetails.length : 0));
 
-  results.forEach(res => {
-    if (res.status === 404 || res.status === 500) totalBrokenLinks++;
-    res.issues.forEach(issue => {
-      const count = issueGroupMap.get(issue) || 0;
-      issueGroupMap.set(issue, count + 1);
-    });
-  });
-
-  console.log("\n================ SUMMARY REPORT ================");
-  console.log(`Total Pages Checked : ${results.length}`);
-  console.log(`Pages with Issues  : ${results.filter(r => r.issuesCount > 0).length}`);
-  console.log(`Broken Links (404) : ${totalBrokenLinks}`);
-  console.log("\n--- Issues Breakdown (Using Map) ---");
-  issueGroupMap.forEach((count, issue) => {
-    console.log(`${issue} → ${count} pages`);
-  });
-  console.log("================================================");
-
-  // Save JSON & CSV
-  const reportData = {
+  const finalReport = {
+    targetWebsite: baseUrl,
+    scannedAt: new Date().toISOString(),
     summary: {
-      totalPages: results.length,
-      pagesWithIssues: results.filter(r => r.issuesCount > 0).length,
-      brokenLinks: totalBrokenLinks,
-      issueBreakdown: Object.fromEntries(issueGroupMap)
+      totalPagesScanned: auditResults.length,
+      pagesWithIssues: auditResults.filter(p => p.issuesCount > 0).length,
+      totalBrokenLinks: totalBrokenLinks,
+      top5WorstPages: top5WorstPages,
+      issueSummary: Object.fromEntries(issueSummaryMap)
     },
-    results
+    issueImportanceGuide: {
+      highPriority: "Broken Links (404) & Missing Title: Direct impact on Google rankings and user bounce rate.",
+      mediumPriority: "Meta Description & H1 Tags: Affects CTR on Google search results and page structure.",
+      lowPriority: "Missing Image Alt Text: Affects accessibility and Google Image search ranking."
+    },
+    pages: auditResults
   };
-  fs.writeFileSync('report.json', JSON.stringify(reportData, null, 2));
 
-  let csvContent = "URL,Status,Response Time,Issues Count,Issues\n";
-  results.forEach(r => {
-    const issuesStr = `"${r.issues.join('; ')}"`;
-    csvContent += `"${r.url}",${r.status},"${r.responseTime}",${r.issuesCount},${issuesStr}\n`;
+  // Generate Files
+  fs.writeFileSync('report.json', JSON.stringify(finalReport, null, 2));
+
+  // CSV Generation
+  let csvContent = 'URL,Status,Response Time,Issues Count,Issues,Broken Links\n';
+  auditResults.forEach(row => {
+    const issuesStr = `"${row.issues.join('; ')}"`;
+    const brokenStr = `"${(row.brokenLinksDetails || []).join('; ')}"`;
+    csvContent += `"${row.url}",${row.status},"${row.responseTime}",${row.issuesCount},${issuesStr},${brokenStr}\n`;
   });
   fs.writeFileSync('report.csv', csvContent);
 
-  console.log("\nSaved: 'report.json' and 'report.csv'");
+  console.log('\n✅ Audit Finished!');
+  console.log(`📊 Summary: ${finalReport.summary.totalPagesScanned} pages scanned, ${finalReport.summary.totalBrokenLinks} broken links found.`);
+  console.log('📁 Saved to report.json and report.csv\n');
 }
 
-async function main() {
-  console.log("Starting SEO Audit...");
-  const urls = getUrlsFromFile('urls.txt');
-  if (urls.length === 0) return;
-
-  console.log(`Processing ${urls.length} URLs (Max 3 concurrently)...`);
-  const results = await processQueue(urls, 3);
-  generateReports(results);
-}
-
-main();
+runFullAudit();
